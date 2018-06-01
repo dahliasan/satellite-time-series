@@ -15,6 +15,7 @@ library(gridExtra)
 library(animation)
 library(remote) 
 library(tidyverse)
+library(lubridate)
 
 rm(list = ls())
 # set the spatial boundaries 
@@ -657,8 +658,37 @@ save(buchld, file = 'bonneyupwelling_chlanom_2016-2017.Rdata')
 
 
 
-# SST Anomaly --------------------------------------------------------------
-sst <- brick("daily_sst_136_141_-36_-43.grd")
+# SST Anomaly (errdap) ----------------------------------------------------
+fn <- paste('ssta1day', extentfn, '1997-01-01', '1998-01-01', '.nc', sep = '_')
+url <- map(1997:2017, function(t1){
+  paste('https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst2Agg.nc?anom[(', t1, '-01-01T00:00:00Z):1:(', t1, '-12-31T00:00:00Z)][(0.0):1:(0.0)][(-46):1:(-36)][(125.5):1:(145.5)]', sep = '')
+}) %>% unlist()
+fn <- paste('ssta', 1997:2017, '.nc', sep = '')
+
+map2(url, fn, ~download.file(.x, destfile = .y))
+
+# combine all .nc files into raster stack
+options("scipen" = 10000000, "digits" = 10)
+r <- stack(fn)
+
+# Convert unix time to dates 
+t <- as.numeric(sapply(names(r), function(x) str_split(x, 'X')[[1]][2]))
+t <- anydate(t)
+
+# resample raster to match sst and ssha (0.25)
+r1 <- resample(r, sst, method="bilinear")
+
+# join seawif and modis rasters
+names(r1) <- t
+r <- setZ(r1, t)
+ssta <- r1
+fn <- paste('ssta1day', extentfn, '1997-01-01', '2017-12-31', '(NOAA)','.grd', sep = '_')
+writeRaster(ssta, filename = fn, overwrite=TRUE)
+              
+
+
+# SST Anomaly (manual)--------------------------------------------------------------
+sst <- brick("daily_sst_129.5_145.5_-36_-46_1997-01-01_2018-01-01_.grd" )
 
 # create dates of layers
 t <- seq(as.Date('1997-01-01'), length = nlayers(sst), by='day')
@@ -668,9 +698,17 @@ sst <- sst[[-c(which(month(t) == 2 & day(t) == 29))]]
 t <- t[-c(which(month(t) == 2 & day(t) == 29))]
 sst <- setZ(sst, t)
 
+# calculate anomaly
 sst_global_mean <- mean(sst)
 ssta_daily <- sst - sst_global_mean
+names(ssta_daily) <- t
 ssta_mc <- stackApply(ssta_daily, month(t), mean)
+ssta_daily <- setZ(ssta_daily, t)
+fn <- paste('ssta1day', extentfn, '1997-01-01', '2017-12-31', '.grd', sep = '_')
+
+ssta <- ssta_daily
+
+writeRaster(ssta, filename = fn, overwrite = TRUE)
 
 
 
