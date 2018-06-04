@@ -58,18 +58,22 @@ names(sst) <- as.character(tt)
 writeRaster(sst, filename = paste("daily_sst", extentfn, start, end, '.grd', sep = '_'), overwrite=TRUE)
 
 # chl (one souce) ---------------------------------------------------------
-fn <- paste('modischl8day', extentfn, '2003-01-05', '2018-01-01', '.nc', sep = '_')
-download.file("http://coastwatch.pfeg.noaa.gov/erddap/griddap/erdMH1chla8day.nc?chlorophyll[(2003-01-05):1:(2018-01-01T00:00:00Z)][(-36):1:(-46)][(129.5):1:(145.5)]",
+fn <- paste('modischl8day', extentfn, '2003-01-05', '2018-01-01', '.tsv', sep = '_')
+# download.file("http://coastwatch.pfeg.noaa.gov/erddap/griddap/erdMH1chla8day.nc?chlorophyll[(2003-01-05):1:(2018-01-01T00:00:00Z)][(-36):1:(-46)][(129.5):1:(145.5)]",
+              # destfile = fn)
+download.file('https://coastwatch.pfeg.noaa.gov/erddap/griddap/erdMH1chla8day.tsv?chlorophyll[(2003-01-05T00:00:00Z):1:(2018-01-01)][(80.02083):1:(80.02083)][(140.0208):1:(140.0208)]',
               destfile = fn)
 
-mdr <- stack("modischl8day_129.5_145.5_-36_-46_2003-01-05_2018-01-01_.nc")
+mdr <- brick("modischl8day_129.5_145.5_-36_-46_2003-01-05_2018-01-01_.nc")
 
 # Convert unix time to dates 
-options("scipen" = 100, "digits" = 5)
-t <- as.numeric(sapply(names(mdr), function(x) str_split(x, 'X')[[1]][2]))
-t <- anydate(t)
+t <- data.frame(read_tsv("modischl8day_129.5_145.5_-36_-46_2003-01-05_2018-01-01_.tsv"))[-1,] # round a bout method to get time because .nc file doesn't have timestamps for some reason
+t$time <- as.Date(strptime(t$time, format = '%Y-%m-%dT%H:%M:%SZ'))
+t <- t$time
 names(mdr) <- t
 mdr <- setZ(mdr, t)
+
+t <- seq(as.Date('2003-01-05'), by = '8 day', length.out = nlayers(mdr))
 
 # resample raster to match sst and ssha (0.25)
 r1 <- resample(mdr, sst, method="bilinear")
@@ -77,6 +81,7 @@ r1 <- resample(mdr, sst, method="bilinear")
 # join seawif and modis rasters
 chl <- r1
 
+fn <- paste('modischl8day', extentfn, '2003-01-05', '2018-01-01', '.grd', sep = '_')
 writeRaster(chl, filename = fn, overwrite=TRUE)
 
 
@@ -710,6 +715,13 @@ ssta <- ssta_daily
 
 writeRaster(ssta, filename = fn, overwrite = TRUE)
 
+
+# bathymetry --------------------------------------------------------------
+bathy <- readbathy(xylim = myextent)
+r1 <- resample(bathy, sst, method="bilinear")
+
+fn <- paste('bathy', extentfn, '.grd', sep = '_')
+writeRaster(r1 , filename = fn, overwrite = TRUE)
 
 
 
