@@ -1,0 +1,16 @@
+*.Rproj.user
+*.Rhistory
+*.RData
+*.Ruserdata
+*.csv
+*.Rdata
+*.Rproj
+time series analysis (old).R
+.Rproj.user
+/plots/
+/raw enviro data/
+/extracted enviro data/
+spare codes.R
+correlate rasters.R
+plotbfast2.R
+bfast.seasonal.R
