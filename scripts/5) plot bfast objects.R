@@ -10,18 +10,16 @@ library(broom)
 
 rm(list = ls())
 ## Load prepared BFAST objects
-load('bfast zonal objects 6Sep2017.Rdata')
+load('./output/bfast/bfast zonal objects 6Sep2017.Rdata')
 # load('bfast zonal objects 6Sep2017 h0.21.Rdata')
-load('bfast soi 1998-2016.Rdata')
+load('./output/bfast/bfast soi 1998-2016.RData')
 shf98bf <- bfl[[1]]
 oc98bf <- bfl[[2]]
 sam98bf <- bfl[[3]]
 names(sam98bf) <- 'sam'
 
 
-# ggplot bfast objects (Create Functions) ----------------------------------------------------
-# source('plotbfast2.R')
-# x = shf98bf[[1]]
+# write ggplot bfast object function ----------------------------------------------------
 BFASTggplot <- function(x, ylab1 = NULL, xlab1 = NULL, title = NULL, plotnoise = FALSE) {
   # ylab1 = NULL;xlab1 = NULL;title = NULL
   niter <- length(x$output)
@@ -39,15 +37,15 @@ BFASTggplot <- function(x, ylab1 = NULL, xlab1 = NULL, title = NULL, plotnoise =
   
   margin <- theme(plot.margin = unit(c(0, 1, 0.1, 0.5), "lines"),
                   panel.grid = element_blank(),
-                  text = element_text(size = 8),
-                  plot.title = element_text(hjust = 0.5, margin = margin(5,0,1,0,'pt')),
+                  text = element_text(size = 8.5),
+                  plot.title = element_text(margin = margin(5,0,1,0,'pt')),
                   axis.title.x = element_text(hjust = 0.5, margin = margin(1,0,1,0,'pt')),
                   panel.background = element_rect(fill = "white", colour = 'black'))
   
   
   # plot raw data
   p1 <- ggplot(data = Yt, aes(x = x, y = y))+
-    geom_line(colour = 'grey60') +
+    geom_line(colour = 'grey60', size = 0.2) +
     labs(y = ylab1, x = xlab1, title = title) + 
     margin + 
     scale_x_continuous(breaks = noise$x[seq(1,nrow(noise),freq)], labels = substr(seq(startyr, endyr, 1), 3, 4))
@@ -157,38 +155,33 @@ BFASTggplot <- function(x, ylab1 = NULL, xlab1 = NULL, title = NULL, plotnoise =
   return(p3)
 }
 
-
-
 # Plot only BFAST trend ---------------------------------------------------
 # plot shelf
 p1 <- BFASTggplot(shf98bf$ssha, ylab1 = 'SSHA', title = '(a) Shelf')
 p2 <- BFASTggplot(shf98bf$sst, ylab1 = 'SST')
-p3 <- BFASTggplot(shf98bf$chl, ylab1 = 'CHL')
+p3 <- BFASTggplot(shf98bf$chl, ylab1 = 'chl-a')
 p4 <- BFASTggplot(sam98bf[[1]], ylab1 = 'SAM', title = '(c) SAM', xlab1 = 'Year')
 pl <- list(p1,p2,p3,p4)
 gg <- ggarrange(plotlist = pl, ncol = 1, nrow = 4, heights = c(1.1, 1,1,1.1), align = 'v')
 gg
-png(filename = paste('bfast ', 'shelf3', '.png', sep = ''),  width=7, height=7, units= "in", res = 300)
-print(gg)
-dev.off()
 
 # plot oceanic
 p1 <- BFASTggplot(oc98bf$ssha, ylab1 = 'SSHA', title = '(b) Oceanic')
 p2 <- BFASTggplot(oc98bf$sst, ylab1 = 'SST')
-p3 <- BFASTggplot(oc98bf$chl, ylab1 = 'CHL', xlab1 = 'Year')
+p3 <- BFASTggplot(oc98bf$chl, ylab1 = 'chl-a')
 p4 <- BFASTggplot(soi98bf, ylab1 = 'SOI', title = '(d) SOI', xlab1 = 'Year')
+p4 <- p4 + 
+  geom_hline(yintercept = -7, linetype = 'dashed', colour = 'black', size = 0.1) +
+  geom_hline(yintercept = 7, linetype = 'dashed', colour = 'black', size = 0.1)
 pl <- list(p1,p2,p3,p4)
 # gg2 <- ggarrange(plotlist = pl, ncol = 1, nrow = 4, heights = c(0.9, 0.8 ,0.9 ,0.8), align = 'v')
 gg2 <- ggarrange(plotlist = pl, ncol = 1, nrow = 4, heights = c(1.1, 1,1,1.1), align = 'v')
 gg2
-png(filename = paste('bfast ', 'ocean3', '.png', sep = ''),  width=7, height=7, units= "in", res = 300)
-print(gg2)
-dev.off()
 
 # combine shelf and ocean
 gg3 <- ggarrange(gg, gg2, ncol = 2, nrow = 1, align = 'hv')
 gg3
-png(filename = paste('bfast ', 'shelfocean3', '.png', sep = ''),  width=7, height=3.5, units= "in", res = 300)
+tiff(filename = paste0('./plots/','bfast_', 'shelfocean_', '3', '.tiff', sep = ''),  width=7, height=3.5, units= "in", res = 300)
 print(gg3)
 dev.off()
 
@@ -235,8 +228,8 @@ BFASTanovatable <- function(x, term = NULL){
     TS_anova <- fit$Yt - out$St   # time series Yt - St for ANOVA test
     dataframe <- data.frame(TIME=c(1:length(fit$Yt)),DATA=TS_anova)
     
-    mod <- map2(out_breakdates$x1, out_breakdates$x2, function(x,y) lm(DATA ~ TIME, data = dataframe[x:y,]))
-    tidymod <- mod %>% map(., ~tidy(.)[2,]) %>% reduce(bind_rows)
+    mod <- purrr::map2(out_breakdates$x1, out_breakdates$x2, function(x,y) lm(DATA ~ TIME, data = dataframe[x:y,]))
+    tidymod <- mod %>% purrr::map(., ~tidy(.)[2,]) %>% reduce(bind_rows)
     tidymod$period <- attributes(sl)$names
     tidymod$slope <- sl
     tidymod$n <- out_breakdates$x2 - out_breakdates$x1 +1
@@ -246,10 +239,10 @@ BFASTanovatable <- function(x, term = NULL){
   return(tidymod)
 }
 
-names <- c('SSHA', 'SST', 'CHL','SAM', 'SSHA', 'SST', 'CHL')
-atab <- map2(c(shf98bf, sam98bf, oc98bf), names, ~BFASTanovatable(.x, .y)) %>% 
+names <- c('SSHA', 'SST', 'CHL','SAM', 'SSHA', 'SST', 'Chl-a', 'SOI')
+atab <- map2(c(shf98bf, sam98bf, oc98bf, list(soi98bf)), names, ~BFASTanovatable(.x, .y)) %>% 
   reduce(bind_rows)
-write.csv(atab, file = 'BFAST_ANOVA_STATS.csv')
+write.csv(atab, file = './output/bfast/BFAST_ANOVA_STATS.csv')
 
 
 

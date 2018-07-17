@@ -529,35 +529,37 @@ save(aao, file = 'aao.Rdata')
 # SOI  --------------------------------------------------------------------
 library(stringr)
 library(tidyr)
-download.file('https://www.esrl.noaa.gov/psd/data/correlation/soi.data',
-              destfile = 'soi.data')
-soi <- tbl_df(read.csv('soi.data', col.names = 'v1'))
-soi <- soi[-c(70:73),]
+# download.file('https://www.esrl.noaa.gov/psd/data/correlation/soi.data',
+#               destfile = 'soi.data')
+download.file('ftp://ftp.bom.gov.au/anon/home/ncc/www/sco/soi/soiplaintext.html',
+              destfile = './raw enviro data/soi_bom.data')
+soi <- tbl_df(read.csv('./raw enviro data/soi_bom.data', col.names = 'v1', skip = 11))
+soi <- soi[-c(143:146),]
 soi$v1 <- as.character(soi$v1)
-x= soi[1,]
-soi <- apply(as.matrix(soi), 1, function(x){
-  s <- str_split(x, pattern ="\\s+")
-  out <- data.frame(year = s[[1]][1], 
-                    Jan = s[[1]][2],
-                    Feb = s[[1]][3],
-                    Mar = s[[1]][4],
-                    Apr = s[[1]][5],
-                    May = s[[1]][6],
-                    Jun = s[[1]][7],
-                    Jul = s[[1]][8],
-                    Aug = s[[1]][9],
-                    Sep = s[[1]][10],
-                    Oct = s[[1]][11],
-                    Nov = s[[1]][12],
-                    Dec = s[[1]][13])
-  return(out)
-})
-
-soi <- tbl_df(do.call('rbind', soi))
+# x= soi[1,]
+s <- split(soi$v1, 1:nrow(soi)) %>% purrr::map(~str_split(., "\\s+")[[1]][-1])
+soi <- s %>% purrr::map(function(x){
+  data.frame(year = x[1], 
+             Jan = x[2],
+             Feb = x[3],
+             Mar = x[4],
+             Apr = x[5],
+             May = x[6],
+             Jun = x[7],
+             Jul = x[8],
+             Aug = x[9],
+             Sep = x[10],
+             Oct = x[11],
+             Nov = x[12],
+             Dec = x[13])
+}) %>% 
+  reduce(bind_rows)
+soi <- soi %>% mutate_all(funs(as.numeric(.)))
+soi <- tbl_df(soi)
 test <- soi %>% gather(month, v1, 2:13) %>% 
   mutate(day = 1, date = as.Date(sprintf('%s-%s-%s', year, month, day), format = '%Y-%b-%d'))
-soi <- test %>%  arrange(date)
-save(soi, file = 'soi.Rdata')
+soi <- test %>%  arrange(date) %>% filter(year < 2017)
+save(soi, file = './raw enviro data/soi_bom.RData')
 
 
 # ONI ---------------------------------------------------------------------
@@ -621,13 +623,14 @@ uwnd <- stack(dir('./raw enviro data/ncep 6h 10m wind/', pattern = 'uwnd', full.
 vwnd <- stack(dir('./raw enviro data/ncep 6h 10m wind/', pattern = 'vwnd', full.names = T))
 
 # crop to focus location
-extent <- extent(136.12, 136.2, -35.5, -35.3)
+# extent <- extent(136.12, 136.2, -35.5, -35.3) # neptune island 
+extent <- extent(140, 141, -40, -39) # bonney coast
 uwnd1 <- crop(uwnd, extent)
 vwnd1 <- crop(vwnd, extent)
 
 # convert to dataframe
 dt <- seq(as.POSIXct('1997-01-01 00:00:00', tz = 'GMT'), as.POSIXct('2017-12-31 18:00:00', tz = 'GMT'), by = '6 hours')
-w0 <- map(list(uwnd1, vwnd1), function(x){
+w0 <- purrr::map(list(uwnd1, vwnd1), function(x){
   df <- data.frame(rasterToPoints(x))
   df <- df %>% tidyr::gather("date", 'v1', 3:ncol(df))
   df$date <- dt
@@ -658,10 +661,23 @@ pho <- 1.22
 coast_angle = 315
 # beta = (360 - coast_angle) * pi/180
 # w1 <- w1 %>% mutate(w = sqrt(u^2 + v^2), alpha = atan(v/u), wind_index = pho * cd * w^2 *sin(alpha - beta)) # possibly wrong calculation
-w1 <- w1 %>% mutate(upwell_wind = pho * cd * w^2 * sin((wdir - coast_angle) * pi/180))
+w1 <- w1 %>% mutate(upwell_wind = pho * cd * w^2 * cos((wdir - coast_angle) * pi/180))
 uw <- w1
-# save(uw, file = "./extracted enviro data/neptuneIs_10m_upwelling_wind_index_1997-2017.RData")
+save(uw, file = "./extracted enviro data/bonneycoast_10m_upwelling_wind_index_1997-2017.RData")
 
+w1 %>% mutate(year = year(date)) %>% 
+  group_by(year) %>% 
+  summarise(mean = mean(windstress)) %>% 
+  filter(year < 2007) %>% 
+  ggplot(aes(year, mean)) + geom_point() + geom_line()
+
+w1 %>% 
+  mutate(year = year(date), month = month(date), period = ifelse(month < 11 & month > 4, 'nonupwelling', 'upwelling')) %>% 
+  filter(year < 2007) %>%
+  group_by(period) %>% 
+  summarise(mean = mean(upwell_wind)) %>% 
+  ggplot(aes(period, mean)) + 
+  geom_col()
 
 # SST Anomaly (errdap) ----------------------------------------------------
 fn <- paste('ssta1day', extentfn, '1997-01-01', '1998-01-01', '.nc', sep = '_')

@@ -6,107 +6,72 @@ library(mapdata)
 library(marmap)
 library(lubridate)
 library(ggpubr)
+library(wesanderson)
 
 rm(list = ls())
 # load list of dataframes
-load('satellite data list (-36).Rdata')
-# l <- ll[c(1:3,6:8)]
+load('./extracted enviro data/satellite data list (-36).RData')
+l <- ll[c("ssha", "sst", "chl", "scu", "scv")]
 
-# Calculate climatology ---------------------------------------------------
-# clm <- lapply(l, FUN = function(x) {
-#   x %>% mutate(month = month(date, abbr = TRUE, label = TRUE)) %>% 
-#     group_by(x, y, month) %>% 
-#     summarise(mean = mean(v1, na.rm = TRUE), sd = sd(v1, na.rm = TRUE))
-# })
-# 
-# # log chl values
-# clm$chl <- clm$chl %>% mutate(mean = log(mean), sd = log(sd))
-# 
-# # merge scv and scu df
-# clm$scu$vm <- clm$scv$mean
-# colnames(clm$scu)[4] <- 'um'
-# # clm$scu <- clm$scu %>%  mutate(mag = sqrt(um^2 + vm^2))
-# clm <- clm[-6]
-# save(clm, file = 'climatology ssha sst chl qscurl sc dataframe.Rdata')
+# calculate climatology (already saved output, don't need to run again) ---------------------------------------------------
+clm <- lapply(l, FUN = function(x) {
+  x %>% mutate(month = month(date, abbr = TRUE, label = TRUE)) %>%
+    group_by(x, y, month) %>%
+    summarise(mean = mean(v1, na.rm = TRUE), sd = sd(v1, na.rm = TRUE))
+})
 
-load('climatology ssha sst chl qscurl sc dataframe.Rdata')
+# log chl values before calculating anomaly
+clm$chl <- clm$chl %>% mutate(mean = log(mean), sd = log(sd))
 
-## Calculate chl and sst and surface current anomalies
-## CHL anomaly
-## calculate climatology mean
-# cm <- clm$chl %>% group_by(x, y) %>% summarise(mean = mean(mean, na.rm = T))
-cm <- ll$chl %>% group_by(x, y) %>% summarise(mean = mean(v1, na.rm = T)) %>% mutate(mean = log(mean))
-# calculmate seasonal chl anomaly
-a <- clm$chl %>% group_by(x, y) %>% summarise(n = n())
-n <- unique(a$n)
-n
-clm$achl <- Map(function(u, df){
-  df <- df %>% select(-sd)
-  df$cm <- NA
-  r <- rep(1:nrow(cm), each = n)
-  df$cm <- u$mean[r]
-  df$mean <- df$mean - df$cm
-  return(df)
-}, u = list(cm), df = list(clm$chl))[[1]]
+## Calculate climatology anomalies for some variables
+calcClimAnom <- function(climdat, overalldat, log = FALSE){
+  # climdat = monthly climatology dataframe colname = x, y, month, mean
+  # overalldat = original time series dataframe which you calculated climatology from colnames = x, y, date, v1
+  
+  # overall time series mean 
+  cm <- overalldat %>% 
+    group_by(x, y) %>%
+    summarise(mean = mean(v1, na.rm = T))
+  
+  if(log == TRUE) cm <- mutate(cm, mean = log(mean))
+    
+  # calculate climatology anomalies (= monthly values - overall time series mean)
+  left_join(climdat, cm, by = c('x', 'y')) %>% 
+    mutate(mean = mean.x - mean.y) %>% 
+    dplyr::select(x, y, month, mean)
+}
 
-# is climatology mean the same as the mean of all observations for each cell? -
-# slightly different may be rounding error
-# tmp <- ll$chl %>% group_by(x,y) %>% mutate(v1 = log(v1)) %>% summarise(mean = mean(v1, na.rm = T))
-# tmp2 <- Map(function(u, df){
-#   df <- df %>% select(-sd)
-#   df$cm <- NA
-#   r <- rep(1:nrow(cm), each = n)
-#   df$cm <- u$mean[r]
-#   df$mean <- df$mean - df$cm
-#   return(df)
-# }, u = list(tmp), df = list(clm$chl))[[1]]
+## monthly chl anomaly climatology
+clm$chlA <- calcClimAnom(clm$chl, ll$chl, log = T)
 
-# calc SST anomaly climatology
-cm <- clm$sst %>% group_by(x, y) %>% summarise(mean = mean(mean, na.rm = T))
+## monthly SST anomaly climatology
+clm$ssta <- calcClimAnom(clm$sst, ll$sst)
 
-# calc seasonal chl anomaly climatology
-a <- clm$sst %>% group_by(x, y) %>% summarise(n = n())
-n <- unique(a$n)
-n
-clm$ssta <- Map(function(u, df){
-  df <- df %>% select(-sd)
-  df$cm <- NA
-  r <- rep(1:nrow(cm), each = n)
-  df$cm <- u$mean[r]
-  df$mean <- df$mean - df$cm
-  return(df)
-}, u = list(cm), df = list(clm$sst))[[1]]
+## monthly surface current u and v anomaly climatology
+clm$scua <- calcClimAnom(clm$scu, ll$scu)
+clm$scva <- calcClimAnom(clm$scv, ll$scv)
 
-# calc surface current anomaly climatology
-cm <- clm$scu %>% group_by(x, y) %>% summarise(umean = mean(um, na.rm = T), vmean = mean(vm, na.rm = T))
-ll$scu$v2 <- ll$scv$v1
-cm <- ll$scu %>% group_by(x,y) %>% summarise(umean = mean(v1, na.rm = T), vmean = mean(v2, na.rm = T))
-a <- clm$scu %>% group_by(x, y) %>% summarise(n = n())
-n <- unique(a$n)
-n
-clm$sca <- Map(function(u, df){
-  df$umean <- NA
-  df$vmean <- NA
-  r <- rep(1:nrow(u), each = n)
-  df$umean <- u$umean[r]
-  df$vmean <- u$vmean[r]
-  df$uma <- df$um - df$umean
-  df$vma <- df$vm - df$vmean
-  df <- df %>% select(-c(um,sd,vm,umean,vmean))
-  return(df)
-}, u = list(cm), df = list(clm$scu))[[1]]
+# merge surface current u and v into a single data frame 
+clm$sc <- left_join(clm$scu, clm$scv, by = c('x', 'y', 'month')) %>% 
+  rename(um = mean.x, vm = mean.y, usd = sd.x, vsd = sd.y) %>% 
+  mutate(mag = sqrt(um^2 + vm^2))
+clm$sca <- left_join(clm$scua, clm$scva, by = c('x', 'y', 'month')) %>% 
+  rename(um = mean.x, vm = mean.y) %>% 
+  mutate(mag = sqrt(um^2 + vm^2))
+
+# remove unwanted variables from list and save for easy loading in the future
+clm <- clm[c("ssha", "sst", "chl", "chlA", "ssta", "sc", "sca")]
+save(clm, file = 'climatology_ssha_sst_chl_chlA_ssta_sc_sca_dataframe.RData')
 
 # calc upwelling wind index climatology
-load("./extracted enviro data/neptuneIs_upwelling_wind_index_1997-2017.RData" )
-
+load("./extracted enviro data/bonneycoast_10m_upwelling_wind_index_1997-2017.RData" )
 uw_clm <- uw %>% 
   mutate(month = as.Date(format(date, '1997-%m-01'))) %>% 
   group_by(month) %>% 
-  summarise(upwl_wnd = mean(wind_index, na.rm = T), upwl_wnd_sd = sd(wind_index, na.rm = T))
+  summarise(upwl_wnd = mean(upwell_wind, na.rm = T), upwl_wnd_sd = sd(upwell_wind, na.rm = T))
 
-
-
-# plots -------------------------------------------------------------------
+load("~/satellite time series/extracted enviro data/climatology_ssha_sst_chl_chlA_ssta_sc_sca_dataframe.RData")
+# Main plots (for publication) -------------------------------------------------------------------
 # get map 
 map <- map_data("worldHires")
 
@@ -120,42 +85,46 @@ b2000 <- bathy_map %>% filter(z >= -2000)
 sb <- b2000 %>% group_by(x) %>% summarise(y = min(y))
 
 ## My theme
-mytheme <- theme(text = element_text(size = 8),
+mytheme <- theme(text = element_text(size = 8.5),
                  panel.background = element_rect(fill = "white", colour = 'black'),
-                 plot.title = element_text(hjust = 0.5, margin = margin(0,0,1,0,'pt')))
+                 # plot.title = element_text(hjust = 0.5, margin = margin(0,0,1,0,'pt')) # center title,
+                 plot.title = element_text(margin = margin(0,0,1,0,'pt')))
 
-## Plot SSHA - looks good!
+## my colour palette
+pal <- wes_palette('Zissou1')
+
+## SSHA - looks good!
 p1 <- ggplot(data = clm$ssha, aes(x, y)) +
   geom_raster(aes(fill = mean)) +
   geom_contour(aes(z = sd), color = 'grey10', size = 0.08) +
   facet_wrap(~ month) +
   geom_raster(data = stf, aes(x = x, y = y), alpha = 0.1, fill = 'black') +
-  scale_fill_gradient2(high = 'firebrick2', low = 'midnightblue', name = 'SSHA')  +
-  geom_map(map_id = "Australia", map = map, colour = "grey") +
+  scale_fill_gradient2(high = last(pal), low = first(pal), name = 'SSHA')  +
+  geom_map(map_id = "Australia", map = map) +
   ylim(-43, -36) +
   xlim(136, 141) +
   labs(y = 'Lat', x = 'Lon', title = '(b)') + 
   geom_path(data = sb, aes(x = x, y = y), color = 'black', alpha = 0.5) +
   mytheme
 
-tiff(filename = 'SSHA climatology2.tiff',  width=7, height=7, units= "in", res = 300)
+tiff(filename = 'SSHA climatology.tiff',  width=7, height=7, units= "in", res = 300)
 print(p1)
 dev.off()
 
-## plot ACHL x surface currents - looks good!
+## ACHL x currents - looks good!
 scaler = 4
 butext <- data.frame(x = 140.3, y = -37.4, month = as.factor("Feb"))
 
-p2 <- ggplot(data = clm$achl, aes(x, y)) +
+p2 <- ggplot(data = clm$chlA, aes(x, y)) +
   geom_raster(aes(fill = mean)) +
   geom_raster(data = stf, aes(x = x, y = y), alpha = 0.1, fill = 'black') +
-  geom_segment(data = clm$sca, 
-               arrow = arrow(length = unit(0.1, 'cm')), 
-               aes(x = x, y = y, xend = x + uma * scaler, yend = y + vma * scaler), 
+  geom_segment(data = clm$sca,
+               arrow = arrow(length = unit(0.1, 'cm')),
+               aes(x = x, y = y, xend = x + um * scaler, yend = y + vm * scaler),
                lwd = 0.2, colour = 'black', show.legend = FALSE) +
   facet_wrap(~ month) +
-  scale_fill_gradient2(high = 'firebrick2', low = 'midnightblue', name = 'ACHL')  +
-  geom_map(map_id = "Australia", map = map, colour = "grey") +
+  scale_fill_gradient2(high = last(pal), low = first(pal), name = 'ChlA')  +
+  geom_map(map_id = "Australia", map = map) +
   ylim(-43, -36) +
   xlim(136, 141) +
   labs(y = 'Lat', x = 'Lon', title = '(a)') + 
@@ -164,11 +133,13 @@ p2 <- ggplot(data = clm$achl, aes(x, y)) +
 
 p2b <- p2 + geom_text(data = butext,  label = 'BC', colour = 'white', size =3)
 
-tiff(filename = 'CHLA x Surface Currents climatology3.tiff',  width=7, height=7, units= "in", res = 300)
+tiff(filename = 'ChlA x Surface Currents climatology.tiff',  width=7, height=7, units= "in", res = 300)
 print(p2b)
 dev.off()
 
-## plot SSTA - meh
+
+# SSTA --------------------------------------------------------------------
+
 # ggplot(data = clm$ssta, aes(x, y)) +
 #   geom_raster(aes(fill = ssta)) +
 #   facet_wrap(~ month) +
@@ -179,52 +150,58 @@ dev.off()
 #   geom_path(data = sb, aes(x = x, y = y), color = 'black', alpha = 0.5) +
 #   mytheme
 
-## plot SST
+
+# SST ---------------------------------------------------------------------
 p3 <- ggplot(data = clm$sst, aes(x, y)) +
   geom_raster(aes(fill = mean)) +
   geom_raster(data = stf, aes(x = x, y = y), alpha = 0.1, fill = 'black') +
   geom_contour(aes(z = sd), color = 'grey10', size = 0.08) +
   facet_wrap(~ month) +
-  # scale_fill_distiller(name = 'SST', type = 'div', palette = 'RdBu') +
-  scale_fill_gradientn(colours = c('midnightblue', 'white','firebrick2'), name = 'SST')  +
-  geom_map(map_id = "Australia", map = map, colour = "grey") +
+  scale_fill_gradientn(colours = c(first(pal), 'white',last(pal)), name = 'SST')  +
+  geom_map(map_id = "Australia", map = map) +
   ylim(-43, -36) +
   xlim(136, 141) +
   labs(y = 'Lat', x = 'Lon', title = '(c)') + 
   geom_path(data = sb, aes(x = x, y = y), color = 'black', alpha = 0.5) +
   mytheme
-tiff(filename = 'SST climatology2.tiff',  width=7, height=7, units= "in", res = 300)
+tiff(filename = 'SST climatology.tiff',  width=7, height=7, units= "in", res = 300)
 print(p3)
 dev.off()
 
-## plot upwelling
+
+# upwelling wind stress ---------------------------------------------------
+# line and error bar climatology
 uw_clm %>% 
   ggplot(aes(month, upwl_wnd, ymin = upwl_wnd - upwl_wnd_sd, ymax = upwl_wnd + upwl_wnd_sd)) + 
   geom_line() +
   geom_point() + 
   geom_errorbar(width = 3) + 
-  scale_x_date(date_breaks = '1 month', date_labels = '%b') 
-  
-uw %>% mutate(mon_yr = as.Date(format(date, '%Y-%m-01'))) %>% 
-  group_by(mon_yr) %>% 
-  summarise(wind_index = mean(wind_index, na.rm = T)) %>% 
-  ggplot(aes(mon_yr, wind_index)) + 
-  geom_line() + 
-  scale_x_date(date_breaks = '1 year', date_labels = '%b %y', date_minor_breaks = '6 months')
-  
+  scale_x_date(date_breaks = '1 month', date_labels = '%b') +
+  mytheme
 
-tiff(filename = 'Upwelling climatology.tiff',  width=7, height=7, units= "in", res = 300)
-print(p4)
+# boxplot climatology
+df <- uw %>% mutate(month = as.Date(format(date, '1997-%m-01'))) 
+by_month <- df %>% group_by(month) %>% nest()
+ylim <- purrr::map(by_month$data,  ~boxplot.stats(.$upwell_wind)$stats[c(1,5)]) %>% unlist()
+ylim1 <- c(min(ylim), max(ylim))
+p0 <- df %>% 
+  ggplot(aes(month, upwell_wind, group = month))+
+  # geom_boxplot(outlier.shape=NA) +
+  # coord_cartesian(ylim = ylim1*1.05) + # removes outliers 
+  geom_boxplot() +
+  scale_x_date(date_breaks = '1 month', date_labels = '%b') +
+  labs(y = expression(paste("Wind stress (", Nm^-2, ")", sep = ' ')), x = 'Month') + 
+  mytheme 
+
+tiff(filename = './plots/bonneyCoast_upwellingWindStress_climatology.tiff',  width=7, height=7, units= "in", res = 300)
+print(p0)
 dev.off()
 
 ## combine SSHA, ACHL, SST
 # ggarrange(p2,p1,p3, ncol = 1, nrow = 3, align = 'v')
 
 
-
-## 
-
-# plot speciific year ------------------------------------------------
+# speciific year ------------------------------------------------
 l <- ll[c(1:3,6:8)]
 yr <- 2007
 clm16 <- lapply(l, FUN = function(x) {
@@ -233,13 +210,14 @@ clm16 <- lapply(l, FUN = function(x) {
     group_by(x, y, month) %>%
     summarise(mean = mean(v1, na.rm = TRUE), sd = sd(v1, na.rm = TRUE))
 })
+
 # log chl values
 clm16$chl <- clm16$chl %>% mutate(mean = log(mean), sd = log(sd))
 # merge scv and scu df
 clm16$scu$vm <- clm16$scv$mean
 colnames(clm16$scu)[4] <- 'um'
 clm16 <- clm16[-6]
-# calculmate seasonal chl anomaly
+# calculate seasonal chl anomaly
 cm <- ll$chl %>% filter(year(date) == yr) %>% group_by(x, y) %>% summarise(mean = mean(v1, na.rm = T)) %>% mutate(mean = log(mean))
 a <- clm16$chl %>% group_by(x, y) %>% summarise(n = n())
 n <- unique(a$n)
@@ -252,6 +230,7 @@ clm16$achl <- Map(function(u, df){
   df$mean <- df$mean - df$cm
   return(df)
 }, u = list(cm), df = list(clm16$chl))[[1]]
+
 ## surface current anomaly
 ll$scu$v2 <- ll$scv$v1
 cm <- ll$scu %>% filter(year(date) == yr) %>% group_by(x,y) %>% summarise(umean = mean(v1, na.rm = T), vmean = mean(v2, na.rm = T))
@@ -308,45 +287,7 @@ ggplot(data = clm16$ssha, aes(x, y)) +
   mytheme
 dev.off()
 
-# plot sst ssha chl with for loop ----------------------------------------------
-## plot for sst, ssha, chl
-# pn <- c('p1', 'p2', 'p3')
-# vn <- c('ssha', 'sst', 'chl')
-# for(i in 1:length(pn)){
-# p <- ggplot(data = clm[[i]], aes(x, y)) +
-#   geom_raster(aes(fill = mean)) +
-#   geom_contour(aes(z = sd), color = 'white', size = 0.1) +
-#   facet_wrap(~ month) +
-#   scale_fill_viridis() +
-#   geom_map(map_id = "Australia", map = map, colour = "grey") +
-#   ylim(-43, -36) +
-#   labs(title = vn[i]) +
-#   geom_contour(data = b2000, aes(x = x, y = y, z = z), color = 'black', alpha = 0.5, weight = 2)
-# tiff(filename = paste(vn[i], '.tiff', sep = ''),  width=7, height=7, units= "in", res = 300)
-# print(p)
-# dev.off()
-# assign(pn[i],p)
-# }
-
-# #### plot surface current ####
-# scaler = 5
-# p <- ggplot(data = clm$scu, 
-#             aes(x = x, y = y)) + 
-#   geom_raster(aes(fill = mag)) +
-#   geom_contour(data = b2000, aes(x = x, y = y, z = z), color = 'grey', alpha = 0.3, weight = 2)+
-#   geom_segment(arrow = arrow(length = unit(0.1, 'cm')), aes(xend = x + um * scaler, yend = y + vm * scaler), lwd = 0.5) +
-#   facet_wrap(~ month) + 
-#   scale_fill_viridis() + 
-#   geom_map(map_id = "Australia", map = map, colour = "grey") + 
-#   labs(title = 'surface current')
-#   
-# tiff(filename = paste('surface current', '.tiff', sep = ''),  width=7, height=7, units= "in", res = 300)
-# p
-# dev.off()
-# 
-# 
-
-# plot GLOB ---------------------------------------------------------------
+# GLOB ---------------------------------------------------------------
 
 tmp <- ll$glob
 tmp <- tmp  %>% mutate(month = month(date, abbr = TRUE, label = TRUE)) %>% 
@@ -370,7 +311,8 @@ print(p)
 dev.off()
 
 
-# #### plot ascat curl ####
+
+# ascat curl --------------------------------------------------------------
 tmp <- ll$ascurl
 tmp <- tmp  %>% mutate(month = month(date, abbr = TRUE, label = TRUE)) %>% 
   group_by(x, y, month) %>% 
@@ -405,7 +347,7 @@ dev.off()
 
 
 
-# plot quikscat curl ------------------------------------------------------
+# quikscat curl ------------------------------------------------------
 
 p4 <- ggplot(data = clm$qscurl, aes(x, y)) +
   geom_raster(aes(fill = mean < 0)) +
@@ -424,39 +366,7 @@ p4
 dev.off()
 
 
-# tmp <- ll$qscurl
-# tmp <- tmp  %>% mutate(month = month(date, abbr = TRUE, label = TRUE)) %>% 
-#   group_by(x, y, month) %>% 
-#   summarise(mean = mean(v1, na.rm = TRUE), sd = sd(v1, na.rm = TRUE))
-# 
-# p2 <- ggplot(tmp, aes(x = x, y = y)) +
-#   geom_tile(aes(fill = mean )) +
-#   geom_contour(aes(z = sd), color = 'white', size = 0.2) +
-#   geom_contour(data = b2000, aes(x = x, y = y, z = z), color = 'grey', alpha = 0.5, weight = 2) +
-#   facet_wrap(~ month) +
-#   ylim(-43, -36) +
-#   geom_map(map_id = "Australia", map = map, colour = "grey") +
-#   labs(title = 'QUIKSCAT curl (1999 - 2009)') 
-# 
-# mi <- (tmp %>%  filter(mean < 0))$mean
-# mibreaks <- c( median(mi),min(mi))
-# ma <- (tmp %>%  filter(mean > 0))$mean
-# mabreaks <- c( max(ma),median(ma))
-# my_colpal <- diverging_pal(11)[c(4:6,10:11)]
-# brlab <- as.character(signif(c(mabreaks, 0, mibreaks)*10^5, 3))
-# scname <- 'curl 10^-5'
-# (p2 <- p2 + scale_fill_gradientn(colours = my_colpal, 
-#                                  values = rescale(c(mabreaks, 0, mibreaks)),
-#                                  guide = "legend",
-#                                  breaks = c(mabreaks, 0, mibreaks),
-#                                  labels = brlab,
-#                                  name = scname) )
-# 
-# tiff(filename = paste('quikcat curl (1999 - 2009)', '.tiff', sep = ''),  width=7, height=7, units= "in", res = 300)
-# p2
-# dev.off()
-
-# plot my wind stress curl ----------------------------------------------------------
+# quikscat + ascat wind stress curl ----------------------------------------------------------
 tmp <- ll$wcurl
 tmp <- tmp  %>% mutate(month = month(date, abbr = TRUE, label = TRUE)) %>% 
   group_by(x, y, month) %>% 
@@ -478,7 +388,7 @@ p
 dev.off()
 
 
-# plot wind vector field --------------------------------------------------
+# wind direction --------------------------------------------------
 wind <- ll$uwind
 colnames(wind)[4] <- 'u'
 wind$v <- ll$vwind$v1
@@ -501,27 +411,8 @@ p <- ggplot(data = wclm, aes(x = x, y = y)) +
   ylim(-43, -36) +
   geom_map(map_id = "Australia", map = map, colour = "grey") +
   labs(title = 'wind field')
-
-
-# #### combine wind stress curl and surface current plots ####
-# scaler = 6
-# p <- ggplot(data = clm$curl) + 
-#   geom_tile(data = clm$curl, aes(x = x, y = y, fill = mean < 0)) +
-#   geom_contour(data = b2000, aes(x = x, y = y, z = z), color = 'grey', alpha = 0.7) +
-#   geom_segment(data = clm$scu, 
-#                arrow = arrow(length = unit(0.1, 'cm')), 
-#                aes(x = x, y = y, alpha = mag, xend = x + um * scaler, yend = y + vm * scaler), 
-#                lwd = 0.5) +
-#   facet_wrap(~ month) + 
-#   ylim(-43, -36) + 
-#   geom_map(map_id = "Australia", map = map, colour = "grey") + 
-#   labs(title = 'wind stress curl and surface current') 
-# 
-# tiff(filename = paste('wind stress curl and surface current', '.tiff', sep = ''),  width=7, height=7, units= "in", res = 300)
-# p
-# dev.off()
-# 
-#### chl x surface current plots ####
+ 
+# chl x currents ----------------------------------------------------------
 scaler = 5
 p <- ggplot(data = clm$chl) +
   geom_tile(data = clm$chl, aes(x = x, y = y, fill = mean)) +
@@ -540,78 +431,3 @@ p <- ggplot(data = clm$chl) +
 tiff(filename = paste('chl and surface current', '.tiff', sep = ''),  width=7, height=7, units= "in", res = 300)
 p
 dev.off()
-# 
-# #### combine chl and wind stress curl ####
-# p <- ggplot(data = clm$chl) + 
-#   geom_point(data = clm$curl, aes(x = x, y = y, alpha = mean < 0)) +
-#   geom_tile(data = clm$chl, aes(x = x, y = y, fill = mean), alpha = 0.9) +
-#   geom_contour(data = b2000, aes(x = x, y = y, z = z), color = 'grey', alpha = 0.7) +
-#   facet_wrap(~ month) + 
-#   ylim(-43, -36) + 
-#   geom_map(map_id = "Australia", map = map, colour = "grey") + 
-#   labs(title = 'wind stress curl and surface current') + 
-#   scale_fill_viridis()
-# 
-# 
-# # sst sd vs chl -----------------------------------------------
-# 
-# p <- ggplot(data = clm$chl) + 
-#   geom_tile(data = clm$chl, aes(x = x, y = y, fill = mean), alpha = 0.9) +
-#   geom_contour(data = b2000, aes(x = x, y = y, z = z), color = 'grey', alpha = 0.7) +
-#   geom_contour(data = clm$sst, aes(x = x, y =y, z = sd), color = 'white', size = 0.1) +
-#   facet_wrap(~ month) + 
-#   ylim(-43, -36) + 
-#   geom_map(map_id = "Australia", map = map, colour = "grey") + 
-#   labs(title = 'wind stress curl and surface current') + 
-#   scale_fill_viridis()
-# 
-# 
-# # sst sd vs surface current -----------------------------------------------
-# 
-# p <- ggplot(data = clm$sst) + 
-#   geom_tile(data = clm$sst, aes(x = x, y = y, fill = sd))+
-#   # geom_contour(data = clm$sst, aes(x = x, y = y, z = sd)) +
-#   geom_contour(data = b2000, aes(x = x, y = y, z = z), color = 'grey', alpha = 0.7) +
-#   geom_segment(data = clm$scu, 
-#                arrow = arrow(length = unit(0.1, 'cm')), 
-#                aes(x = x, y = y, xend = x + um * scaler, yend = y + vm * scaler), 
-#                lwd = 0.5) +
-#   facet_wrap(~ month) + 
-#   ylim(-43, -36) + 
-#   geom_map(map_id = "Australia", map = map, colour = "grey") + 
-#   labs(title = 'sst and surface current') + 
-#   scale_fill_viridis()
-# 
-# tiff(filename = paste('sstsd and surface current', '.tiff', sep = ''),  width=7, height=7, units= "in", res = 300)
-# p
-# dev.off()
-# 
-# # plot hovmollerish surface current plots
-# tmp <- clm$scu %>% group_by(x) %>% mutate(region = if(x < 137) {
-#   region = 1} else if(x >= 137 & x < 138){
-#     region = 2} else if(x >= 138 & x < 139){
-#       region = 3} else {region = 4})
-# tmp <- tmp %>% group_by(month, y, region) %>% mutate(um = mean(um, na.rm = TRUE),
-#                                          vm = mean(vm, na.rm = TRUE))
-# tmp <- tmp %>%  mutate(mag = sqrt(um^2 + vm^2))
-# tmp2 <- tmp %>% group_by(month, y, region) %>% summarise(um = first(um),
-#                                                          vm = first(vm), 
-#                                                          mag = first(mag),
-#                                                          x = first(x))
-# 
-# scaler = 5
-# p <- ggplot(data = tmp, 
-#             aes(x = x, y = y)) + 
-#   geom_raster(aes(fill = mag)) +
-#   geom_contour(data = b2000, aes(x = x, y = y, z = z), color = 'grey', alpha = 0.3, weight = 2)+
-#   geom_segment(arrow = arrow(length = unit(0.1, 'cm')), aes(xend = x + um * scaler, yend = y + vm * scaler), lwd = 0.5) +
-#   facet_wrap(~ month) + 
-#   scale_fill_viridis() + 
-#   geom_map(map_id = "Australia", map = map, colour = "grey") + 
-#   labs(title = 'surface current')+
-#   geom_vline(aes(xintercept = 137), linetype = 'dashed')+
-#   geom_vline(aes(xintercept = 138), linetype = 'dashed')+
-#   geom_vline(aes(xintercept = 139), linetype = 'dashed')
-# tiff(filename = paste('surface current subregion split', '.tiff', sep = ''),  width=7, height=7, units= "in", res = 300)
-# p
-# dev.off()

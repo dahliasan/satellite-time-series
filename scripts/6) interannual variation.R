@@ -11,72 +11,58 @@ library(lubridate)
 library(ggpubr)
 
 ## Load list of raw data
-load('satellite data list (-36).Rdata')
+load('./extracted enviro data/satellite data list (-36).RData')
 
-## Extract on ssha, sst, chl
-ll <- ll[c('ssha', 'sst', 'chl', 'scu', 'scv')]
+## Extract desired variables
+ll <- ll[c('ssha', 'sst', 'chl')]
 
-## Calculate seasonal values
-# getSeason <- function(DATES) {
-#   wi <- as.Date("2012-06-01", format = "%Y-%m-%d") # Winter
-#   sp <- as.Date("2012-09-01",  format = "%Y-%m-%d") # Spring
-#   su <- as.Date("2012-12-01",  format = "%Y-%m-%d") # Summer
-#   au <- as.Date("2012-03-01",  format = "%Y-%m-%d") # Fall
-# 
-#   # Convert dates from any year to 2012 dates
-#   d <- as.Date(strftime(DATES, format="2012-%m-%d"))
-# 
-#   ifelse (d >= wi & d < sp, "Winter",
-#           ifelse (d >= sp & d < su, "Spring",
-#                   ifelse (d >= au & d < wi, "Autumn", "Summer")))
-# }
-# # x <- ll[[1]]
-# # x$date2[which(month(x$date) == 12)] <- x$date[which(month(x$date) == 12)] + 365
-# # x$date2 <- as.Date(x$date2)
-# s <- lapply(ll, function(x){
-#   x$date[which(month(x$date) == 12)] <- x$date[which(month(x$date) == 12)] + 365
-#   x %>% mutate(year = year(date), season = getSeason(date)) %>%
-#     filter(year > 1997 & year < 2017) %>%
-#     group_by(x, y, season, year) %>%
-#     summarise(mean = mean(v1, na.rm = TRUE), sd = sd(v1, na.rm = TRUE))
-#   })
-# save(s, file = 'satellite data seasonaly (-36).Rdata')
+## load season classification function
+getSeason <- function(DATES) {
+  wi <- as.Date("2012-06-01", format = "%Y-%m-%d") # Winter
+  sp <- as.Date("2012-09-01",  format = "%Y-%m-%d") # Spring
+  su <- as.Date("2012-12-01",  format = "%Y-%m-%d") # Summer
+  au <- as.Date("2012-03-01",  format = "%Y-%m-%d") # Fall
+
+  ## use dummy year since we're only interested at seasonal level
+  d <- as.Date(strftime(DATES, format="2012-%m-%d"))
+
+  ifelse (d >= wi & d < sp, "Winter",
+          ifelse (d >= sp & d < su, "Spring",
+                  ifelse (d >= au & d < wi, "Autumn", "Summer")))
+}
+
+## average time series values by season
+s <- lapply(ll, function(x){
+  x$date[which(month(x$date) == 12)] <- x$date[which(month(x$date) == 12)] + 365 # add 365 days to december month as it's part on the next year's summer period. 
+  x %>% mutate(year = year(date), season = getSeason(date)) %>%
+    filter(year > 1997 & year < 2017) %>%
+    group_by(x, y, season, year) %>%
+    summarise(mean = mean(v1, na.rm = TRUE), sd = sd(v1, na.rm = TRUE))
+  })
+
+## save(s, file = 'satellite data seasonaly (-36).Rdata')
 
 ## Calculate yearly values
-# yearly <- lapply(ll, FUN = function(x) {
-#   x %>% mutate(year = year(date)) %>%
-#     group_by(x, y, year) %>%
-#     filter(year > 1997 & year < 2017) %>%
-#     summarise(mean = mean(v1, na.rm = TRUE), sd = sd(v1, na.rm = TRUE))
-# })
-# 
-# save(yearly, file = 'satellite data yearly (-36).Rdata')
-load('satellite data yearly (-36).Rdata')
-load('satellite data seasonaly (-36).Rdata')
+yearly <- lapply(ll, FUN = function(x) {
+  x %>% mutate(year = year(date)) %>%
+    group_by(x, y, year) %>%
+    filter(year > 1997 & year < 2017) %>%
+    summarise(mean = mean(v1, na.rm = TRUE), sd = sd(v1, na.rm = TRUE))
+})
 
-## log chl values
+# save(yearly, file = 'satellite data yearly (-36).Rdata')
+
+load('./extracted enviro data/satellite data yearly (-36).Rdata')
+load('./extracted enviro data/satellite data seasonaly (-36).Rdata')
+
+# log chl values
 yearly$chl <- yearly$chl %>% mutate(mean = log(mean), sd = log(sd))
 s$chl <- s$chl %>% mutate(mean = log(mean), sd = log(sd))
 
-## merge scv and scu df (surface current v and u components)
-yearly$scu$vm <- yearly$scv$mean
-colnames(yearly$scu)[5] <- 'um'
-# yearly$scu <- yearly$scu %>%  mutate(mag = sqrt(um^2 + vm^2))
-s$scu$vm <- s$scv$mean
-colnames(s$scu)[5] <- 'um'
-# s$scu <- s$scu %>%  mutate(mag = sqrt(um^2 + vm^2))
-yearly <- yearly[1:4]
-s <- s[1:4]
 
 # Calculate mean for entire time series for each cell  --------------------
 ## Yearly
 tsm <- lapply(yearly, function(df) df %>% group_by(x, y) %>% summarise(mean = mean(mean, na.rm = T)))
-tsm[[4]] <-  yearly[[4]] %>% group_by(x, y) %>% summarise(umean = mean(um, na.rm = T), vmean = mean(vm, na.rm = T))
-n <- unique(unlist(lapply(yearly, function(df){
-  a <- df %>% group_by(x, y) %>% summarise(n = n())
-  unique(a$n)
-})))
-n
 
 yy <- Map(function(u, df){
   df$tsmean <- NA
@@ -86,20 +72,9 @@ yy <- Map(function(u, df){
   return(df)
 }, u = tsm[1:3], df = yearly[1:3])
 
-yy$sc <- Map(function(u, df){
-  df$umean <- NA
-  df$vmean <- NA
-  r <- rep(1:nrow(u), each = n)
-  df$umean <- u$umean[r]
-  df$vmean <- u$vmean[r]
-  df$uiav <- df$um - df$umean
-  df$viav <- df$vm - df$vmean
-  return(df)
-}, u = tsm[4], df = yearly[4])[[1]]
-
 ## Seasonal
 tsm <- lapply(s, function(df) df %>% group_by(x, y, season) %>% summarise(mean = mean(mean, na.rm = T)))
-tsm[[4]] <-  s[[4]] %>% group_by(x, y, season) %>% summarise(umean = mean(um, na.rm = T), vmean = mean(vm, na.rm = T))
+
 # Check that each cell-season combination has the same number of observations (n) 
 # lapply(s, function(df){
 #   a <- df %>% group_by(x, y, season) %>% summarise(n = n())})
@@ -123,22 +98,6 @@ ss <- Map(function(u, df){
   df$season <- factor(df$season, levels = c('Summer', 'Autumn', 'Winter', 'Spring'))
   return(df)
 }, u = tsm[1:3], df = s[1:3])
-# do surface current (u) separately because different dataframe structure
-ss[4] <- Map(function(u, df){
-  df$umean <- NA
-  df$vmean <- NA
-  r <- rep(1:nrow(u), each = n)
-  df$umean <- u$umean[r]
-  df$vmean <- u$vmean[r]
-  df$uiav <- df$um - df$umean
-  df$viav <- df$vm - df$vmean
-  df$season <- factor(df$season, levels = c('Summer', 'Autumn', 'Winter', 'Spring'))
-  return(df)
-}, u = tsm[4], df = s[4])
-names(ss)[4] <- 'sc'
-# compute magnitude of anomalies 
-# ss[[4]] <- ss[[4]] %>% mutate(magiav = sqrt(uiav^2 + viav^2))
-
 
 # Make plots --------------------------------------------------------------
 # get map 
@@ -148,15 +107,6 @@ bathy <- getNOAA.bathy(136,141,-43, -36.5,res=1, keep=TRUE)
 bathy_map <- tbl_df(fortify(bathy))
 b2000 <- bathy_map %>% filter(z >= -2000)
 sb <- b2000 %>% group_by(x) %>% summarise(y = min(y))
-
-# If you wanna test something first on function
-# select season
-# seas <- 'Summer'
-# # select variable
-# pd <- ss$chl[ss$chl$season == seas,]
-# p.title <- paste0(seas, ' CHL')
-# sc <- ss$sc[ss$sc$season == seas,]
-# rm(seas, pd, p.title, sc)
 
 ## ggplot chl x surface currents
 # to use this function below need to run above to get objects map, sb, stf, smin, smax
@@ -197,8 +147,8 @@ IAVplot <- function(pd, stf, p.title, fn, legend.name){
     geom_path(data = sb, aes(x = x, y = y), color = 'black') +
     geom_raster(data = stf, aes(x = x, y = y), alpha = 0.1, fill = 'black') +
     labs(title = p.title) +
-    theme(text = element_text(size = 7),
-          plot.title = element_text(hjust = 0.5, margin = margin(0,0,1,0,'pt'))) + 
+    theme(text = element_text(size = 8.5),
+          plot.title = element_text(margin = margin(0,0,1,0,'pt'))) + 
     labs(title = p.title, x = 'Lon', y = 'Lat', fill = legend.name) +
     scale_fill_gradient2(high = 'firebrick2', low = 'midnightblue')
     # scale_fill_gradient2(high = 'firebrick2', low = 'midnightblue', limits = c(smin, smax))
@@ -243,31 +193,36 @@ pt <- paste(names(sshass), 'SST')
 pt <- list(pt[1], pt[2], pt[3], pt[4])
 sst_plots <- Map(IAVplot, pd = sstss, stf = stf, p.title = pt, fn = pt, legend.name = 'SSTAA')
   
-## Calculate SD of annual anomaly (the real IAV?)
-ggplotSDIAV <- function(df, title, varname = '', pal = 'Spectral'){
+## Calculate SD of annual anomaly (used for final manuscript)
+ggplotSDIAV <- function(df, title, varname = '', pal = NULL, rm.out = FALSE){
+  pal <- wesanderson::wes_palette('Zissou1')[-c(2,4)]
   df <- df %>% group_by(x, y, season) %>% summarise(meanIAV = mean(iav), sdIAV = sd(iav))
-  mytheme <- theme(text = element_text(size = 6),
+  if(rm.out == TRUE){
+    hs <- hist(df$sdIAV, plot = FALSE)
+    df <- df %>% filter(sdIAV <= hs$breaks[last(which(hs$counts == 1))])
+  }
+  mytheme <- theme(text = element_text(size = 8.5),
                    panel.background = element_rect(fill = "white", colour = 'black'),
-                   plot.title = element_text(hjust = 0.5, margin = margin(0,0,1,0,'pt')),
+                   plot.title = element_text( margin = margin(0,0,1,0,'pt')),
                    legend.position = "bottom",
                    legend.margin = margin(-1,0,0,0,'mm'))
   p <- ggplot(data = df, aes(x, y)) +
     geom_raster(aes(fill = sdIAV)) +
     facet_wrap(~ season) +
-    geom_map(map_id = "Australia", map = map, colour = "grey") +
+    geom_map(map_id = "Australia", map = map) +
     ylim(-43, -36) +
     xlim(136, 141) +
     geom_path(data = sb, aes(x = x, y = y), color = 'black') +
     labs(title = title, x = 'Lon', y = 'Lat', fill = paste0(varname)) +
-    scale_fill_distiller(type = 'div', palette = pal) +
+    scale_fill_gradientn(colours = pal, name = 'iav') +
     mytheme
   return(p)
 }
-p1 <- ggplotSDIAV(ss$chl, '(a) CHL iav')
-p2 <- ggplotSDIAV(ss$ssha, '(b) SSHA iav', pal = 'RdYlBu')
-p3 <- ggplotSDIAV(ss$sst, '(c) SST iav', pal = 'RdYlBu')
+p1 <- ggplotSDIAV(ss$chl, '(a) Chl-a', pal = pal)
+p2 <- ggplotSDIAV(ss$ssha, '(b) SSHA', pal = pal)
+p3 <- ggplotSDIAV(ss$sst, '(c) SST', pal = pal)
 gg <- ggarrange(p1,p2,p3, ncol = 3, nrow = 1, align = 'h')
-tiff(filename = 'chl ssha sst sd iav.tiff',  width=6, height=3.5, units= "in", res = 300)
+tiff(filename = './plots/chl ssha sst sd iav.tiff',  width=6, height=3.5, units= "in", res = 300)
 print(gg)
 dev.off()
 
@@ -351,3 +306,29 @@ range$min_AA <- signif(range$min_AA, 3)
 range$max_AA <- signif(range$max_AA, 3)
 range$range <- range$max_AA - range$min_AA
 write.csv(range, file = 'annual anomalies range2.csv')
+
+
+
+# inter-annual variation (annual annomaly) for wind stress ----------------------------------
+# special case for a single location time series
+
+# load upwelling wind stress separately 
+load( "./extracted enviro data/bonneycoast_10m_upwelling_wind_index_1997-2017.RData")
+
+# seasonal time series
+x <- uw %>% rename(v1 = upwell_wind)
+x$date[which(month(x$date) == 12)] <- x$date[which(month(x$date) == 12)] + 365 # add 365 days to december month as it's part on the next year's summer period. 
+uwsy <- x %>% mutate(year = year(date), season = getSeason(date)) %>%
+  filter(year > 1997 & year < 2017) %>%
+  group_by(season, year) %>%
+  summarise(mean = mean(v1, na.rm = TRUE))
+
+# overall mean of time series
+tsmean <- mean(uw$upwell_wind)
+
+# seasonal inter-annual anomaly
+uwsy <- uwsy %>% group_by(season, year) %>% mutate(anom = mean - tsmean)
+uw_iav <- uwsy %>% 
+  group_by(season) %>%
+  summarise(sd = sd(anom, na.rm = T), min = min(anom), max = max(anom))
+  
