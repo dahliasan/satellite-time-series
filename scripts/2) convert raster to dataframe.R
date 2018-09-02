@@ -16,10 +16,11 @@ scu <- stack("oscar_um_5day_136_141_-36_-43.grd")
 scv <- stack("oscar_vm_5day_136_141_-36_-43.grd")
 uwnd <- stack('uwnd_5-8day136_141_-36_-43.grd')
 vwnd <- stack('vwnd_5-8day136_141_-36_-43.grd')
+ssta <- brick("./extracted enviro data/ssta1day_129.5_145.5_-36_-46_1997-01-01_2017-12-31_.grd") 
 
 # convert to raster to dataframe
-vn <- c('ssha', 'sst', 'chl', 'glob','ascurl', 'qscurl', 'scu', 'scv', 'uwind', 'vwind')
-l <- list(ssha, sst, chl, glob, ascat, qs, scu, scv, uwnd, vwnd)
+vn <- c('ssha', 'sst', 'chl', 'glob','ascurl', 'qscurl', 'scu', 'scv', 'uwind', 'vwind', 'ssta')
+l <- list(ssha, sst, chl, glob, ascat, qs, scu, scv, uwnd, vwnd, ssta)
 
 # create list of data frames
 ll <- lapply(l, FUN = function(x) {
@@ -36,7 +37,7 @@ ll <- lapply(l, FUN = function(x) {
 # assign correct variable name 
 names(ll) <- vn
 
-save(ll, file = 'satellite data list (-36).Rdata')
+save(ll, file = './extracted enviro data/satellite data list (-36).Rdata')
 
 ## ekman upwelling data (2009 - present)
 uw <- stack('upwelling_1day_2009-present.grd')

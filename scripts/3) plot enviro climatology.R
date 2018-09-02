@@ -11,7 +11,7 @@ library(wesanderson)
 rm(list = ls())
 # load list of dataframes
 load('./extracted enviro data/satellite data list (-36).RData')
-l <- ll[c("ssha", "sst", "chl", "scu", "scv")]
+l <- ll[c("ssha", "sst", "chl", "scu", "scv", "ssta")]
 
 # calculate climatology (already saved output, don't need to run again) ---------------------------------------------------
 clm <- lapply(l, FUN = function(x) {
@@ -33,7 +33,7 @@ calcClimAnom <- function(climdat, overalldat, log = FALSE){
     group_by(x, y) %>%
     summarise(mean = mean(v1, na.rm = T))
   
-  if(log == TRUE) cm <- mutate(cm, mean = log(mean))
+  if(log) cm <- mutate(cm, mean = log(mean))
     
   # calculate climatology anomalies (= monthly values - overall time series mean)
   left_join(climdat, cm, by = c('x', 'y')) %>% 
@@ -96,18 +96,18 @@ pal <- wes_palette('Zissou1')
 ## SSHA - looks good!
 p1 <- ggplot(data = clm$ssha, aes(x, y)) +
   geom_raster(aes(fill = mean)) +
-  geom_contour(aes(z = sd), color = 'grey10', size = 0.08) +
+  geom_contour(aes(z = sd), color = 'grey10', size = 0.2) +
   facet_wrap(~ month) +
-  geom_raster(data = stf, aes(x = x, y = y), alpha = 0.1, fill = 'black') +
+  geom_raster(data = stf, aes(x = x, y = y), alpha = 0.5, fill = 'black') +
   scale_fill_gradient2(high = last(pal), low = first(pal), name = 'SSHA')  +
   geom_map(map_id = "Australia", map = map) +
   ylim(-43, -36) +
   xlim(136, 141) +
   labs(y = 'Lat', x = 'Lon', title = '(b)') + 
-  geom_path(data = sb, aes(x = x, y = y), color = 'black', alpha = 0.5) +
+  geom_path(data = sb, aes(x = x, y = y), color = 'black', alpha = 0.5, size = 1) +
   mytheme
 
-tiff(filename = 'SSHA climatology.tiff',  width=7, height=7, units= "in", res = 300)
+tiff(filename = './plots/SSHA climatology.tiff',  width=7, height=7, units= "in", res = 300)
 print(p1)
 dev.off()
 
@@ -117,38 +117,45 @@ butext <- data.frame(x = 140.3, y = -37.4, month = as.factor("Feb"))
 
 p2 <- ggplot(data = clm$chlA, aes(x, y)) +
   geom_raster(aes(fill = mean)) +
-  geom_raster(data = stf, aes(x = x, y = y), alpha = 0.1, fill = 'black') +
+  geom_raster(data = stf, aes(x = x, y = y), alpha = 0.5, fill = 'black') +
   geom_segment(data = clm$sca,
                arrow = arrow(length = unit(0.1, 'cm')),
                aes(x = x, y = y, xend = x + um * scaler, yend = y + vm * scaler),
                lwd = 0.2, colour = 'black', show.legend = FALSE) +
   facet_wrap(~ month) +
-  scale_fill_gradient2(high = last(pal), low = first(pal), name = 'ChlA')  +
+  scale_fill_gradient2(high = first(pal), low = last(pal), name = 'ChlA')  +
   geom_map(map_id = "Australia", map = map) +
   ylim(-43, -36) +
   xlim(136, 141) +
   labs(y = 'Lat', x = 'Lon', title = '(a)') + 
-  geom_path(data = sb, aes(x = x, y = y), color = 'black', alpha = 0.5) +
+  geom_path(data = sb, aes(x = x, y = y), color = 'black', alpha = 0.5, size = 1) +
   mytheme
 
 p2b <- p2 + geom_text(data = butext,  label = 'BC', colour = 'white', size =3)
 
-tiff(filename = 'ChlA x Surface Currents climatology.tiff',  width=7, height=7, units= "in", res = 300)
+tiff(filename = './plots/ChlA x Surface Currents climatology.tiff',  width=7, height=7, units= "in", res = 300)
 print(p2b)
 dev.off()
 
 
 # SSTA --------------------------------------------------------------------
 
-# ggplot(data = clm$ssta, aes(x, y)) +
-#   geom_raster(aes(fill = ssta)) +
-#   facet_wrap(~ month) +
-#   scale_fill_gradient2(high = 'firebrick2', low = 'midnightblue', name = 'SSTA')  +
-#   geom_map(map_id = "Australia", map = map, colour = "grey") +
-#   ylim(-43, -36) +
-#   labs(y = 'Lat', x = 'Lon') + 
-#   geom_path(data = sb, aes(x = x, y = y), color = 'black', alpha = 0.5) +
-#   mytheme
+# l$ssta %>% 
+#   filter(year(date) == 2016) %>% 
+#   mutate(month = month(date)) %>% 
+#   group_by(x,y, month) %>% 
+#   summarise(mean = mean(v1, na.rm = T)) %>% 
+clm$ssta %>% 
+  ggplot(aes(x, y)) +
+  geom_raster(aes(fill = mean)) +
+  facet_wrap(~ month) +
+  scale_fill_gradient2(high = last(pal), low = first(pal), name = 'SSTA')  +
+  # scale_fill_viridis() + 
+  geom_map(map_id = "Australia", map = map, colour = "grey") +
+  lims(y = c(-43, -36), x = c(136, 141)) +
+  labs(y = 'Lat', x = 'Lon') +
+  geom_path(data = sb, aes(x = x, y = y), color = 'black', alpha = 0.5) +
+  mytheme
 
 
 # SST ---------------------------------------------------------------------
@@ -194,6 +201,23 @@ p0 <- df %>%
   mytheme 
 
 tiff(filename = './plots/bonneyCoast_upwellingWindStress_climatology.tiff',  width=7, height=7, units= "in", res = 300)
+print(p0)
+dev.off()
+
+# monthly mean sum of windstress 
+u <- uw %>% mutate(month = month(date, abbr = T, label = T), year = year(date)) %>% 
+  group_by(month, year) %>% 
+  summarise(upwell_wind = sum(upwell_wind, na.rm = T))
+
+p0 <- u %>% 
+  ggplot(aes(month, upwell_wind, group = month))+
+  geom_boxplot() +
+  labs(y = expression(paste("Average cumulative wind stress (", Nm^-2, ")", sep = ' ')), x = 'Month') + 
+  mytheme +
+  geom_hline(aes(yintercept = 0), linetype = 'dashed', size = 0.5)
+
+
+tiff(filename = './plots/bonneyCoast_cumulativeMonthlyUpwellingWindStress_climatology.tiff',  width=7, height=7, units= "in", res = 300)
 print(p0)
 dev.off()
 

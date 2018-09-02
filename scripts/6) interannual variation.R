@@ -59,45 +59,16 @@ load('./extracted enviro data/satellite data seasonaly (-36).Rdata')
 yearly$chl <- yearly$chl %>% mutate(mean = log(mean), sd = log(sd))
 s$chl <- s$chl %>% mutate(mean = log(mean), sd = log(sd))
 
-
-# Calculate mean for entire time series for each cell  --------------------
-## Yearly
-tsm <- lapply(yearly, function(df) df %>% group_by(x, y) %>% summarise(mean = mean(mean, na.rm = T)))
-
-yy <- Map(function(u, df){
-  df$tsmean <- NA
-  r <- rep(1:nrow(u), each = n)
-  df$tsmean <- u$mean[r]
-  df$iav <- df$mean - df$tsmean
-  return(df)
-}, u = tsm[1:3], df = yearly[1:3])
-
-## Seasonal
-tsm <- lapply(s, function(df) df %>% group_by(x, y, season) %>% summarise(mean = mean(mean, na.rm = T)))
-
-# Check that each cell-season combination has the same number of observations (n) 
-# lapply(s, function(df){
-#   a <- df %>% group_by(x, y, season) %>% summarise(n = n())})
-n <- unique(unlist(lapply(s, function(df){
-  a <- df %>% group_by(x, y, season) %>% summarise(n = n())
-  unique(a$n)
-  })))
-n
-
-# Run below if above check is correct i.e. same number of observations for each group
-## Calculate annual anomalies
-# u <- tsm$scu
-# df <- s$scu
-ss <- Map(function(u, df){
-  df$tsmean <- NA
-  # r <- unlist(Map(function(x, y, z) {
-  #   which(u$x == x & u$y == y & u$season == z)}, df$x, df$y, df$season))
-  r <- rep(1:nrow(u), each = n)
-  df$tsmean <- u$mean[r]
-  df$iav <- df$mean - df$tsmean
-  df$season <- factor(df$season, levels = c('Summer', 'Autumn', 'Winter', 'Spring'))
-  return(df)
-}, u = tsm[1:3], df = s[1:3])
+# calculate interannual anomaly -------------------------------------------
+ss <- purrr::map(s, function(x){ 
+  x %>% 
+    # get the global mean for each season
+    group_by(x, y, season) %>% 
+    mutate(global_season_mean = mean(mean, na.rm = T)) %>% 
+    # calculate anomaly 
+    ungroup() %>% 
+    mutate(iav = mean - global_season_mean, season = factor(season, levels = c('Summer', 'Autumn', 'Winter', 'Spring')))
+})
 
 # Make plots --------------------------------------------------------------
 # get map 
@@ -160,7 +131,7 @@ IAVplot <- function(pd, stf, p.title, fn, legend.name){
   return(p)
 }
 
-# Seasonal plots ----------------------------------------------------------
+# Seasonal plots for each year ----------------------------------------------------------
 # get stf data
 stf <- s$sst %>% filter(mean >= 12 & mean < 12+1)
 stf <- split(stf, stf$season)
@@ -193,11 +164,12 @@ pt <- paste(names(sshass), 'SST')
 pt <- list(pt[1], pt[2], pt[3], pt[4])
 sst_plots <- Map(IAVplot, pd = sstss, stf = stf, p.title = pt, fn = pt, legend.name = 'SSTAA')
   
-## Calculate SD of annual anomaly (used for final manuscript)
-ggplotSDIAV <- function(df, title, varname = '', pal = NULL, rm.out = FALSE){
-  pal <- wesanderson::wes_palette('Zissou1')[-c(2,4)]
+## Calculate SD of annual anomaly (used for final manuscript) -----------------------------------------
+ggplotSDIAV <- function(df, title, varname = '', pal = NA, rev.pal = FALSE, remove.outliers = FALSE, plot.xlab = FALSE, plot.ylab = FALSE){
+  if(sum(!is.na(pal)) == 0) pal <- wesanderson::wes_palette('Zissou1')[-c(2,4)] else pal <- pal
+  if(rev.pal) pal <- rev(pal)
   df <- df %>% group_by(x, y, season) %>% summarise(meanIAV = mean(iav), sdIAV = sd(iav))
-  if(rm.out == TRUE){
+  if(remove.outliers){
     hs <- hist(df$sdIAV, plot = FALSE)
     df <- df %>% filter(sdIAV <= hs$breaks[last(which(hs$counts == 1))])
   }
@@ -205,7 +177,11 @@ ggplotSDIAV <- function(df, title, varname = '', pal = NULL, rm.out = FALSE){
                    panel.background = element_rect(fill = "white", colour = 'black'),
                    plot.title = element_text( margin = margin(0,0,1,0,'pt')),
                    legend.position = "bottom",
-                   legend.margin = margin(-1,0,0,0,'mm'))
+                   legend.margin = margin(-1,0,0,0,'mm'),
+                   axis.title.x = element_blank(),
+                   axis.title.y = element_blank())
+  if(plot.xlab) mytheme["axis.title.x"] <- NULL
+  if(plot.ylab) mytheme["axis.title.y"] <- NULL
   p <- ggplot(data = df, aes(x, y)) +
     geom_raster(aes(fill = sdIAV)) +
     facet_wrap(~ season) +
@@ -218,11 +194,11 @@ ggplotSDIAV <- function(df, title, varname = '', pal = NULL, rm.out = FALSE){
     mytheme
   return(p)
 }
-p1 <- ggplotSDIAV(ss$chl, '(a) Chl-a', pal = pal)
-p2 <- ggplotSDIAV(ss$ssha, '(b) SSHA', pal = pal)
-p3 <- ggplotSDIAV(ss$sst, '(c) SST', pal = pal)
+p1 <- ggplotSDIAV(ss$chl, '(a) Chl-a', plot.ylab = T)
+p2 <- ggplotSDIAV(ss$ssha, '(b) SSHA', plot.xlab = T)
+p3 <- ggplotSDIAV(ss$sst, '(c) SST')
 gg <- ggarrange(p1,p2,p3, ncol = 3, nrow = 1, align = 'h')
-tiff(filename = './plots/chl ssha sst sd iav.tiff',  width=6, height=3.5, units= "in", res = 300)
+tiff(filename = './plots/chl ssha sst sd iav.tiff',  width=8, height=5.5, units= "in", res = 300)
 print(gg)
 dev.off()
 

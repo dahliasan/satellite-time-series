@@ -709,10 +709,10 @@ writeRaster(ssta, filename = fn, overwrite=TRUE)
 
 
 # SST Anomaly (manual)--------------------------------------------------------------
-sst <- brick("daily_sst_129.5_145.5_-36_-46_1997-01-01_2018-01-01_.grd" )
+sst <- brick("./extracted enviro data/daily_sst_129.5_145.5_-36_-46_1997-01-01_2018-01-01_.grd" )
 
 # create dates of layers
-t <- seq(as.Date('1997-01-01'), length = nlayers(sst), by='day')
+t <- getZ(sst)
 
 # remove leap days
 sst <- sst[[-c(which(month(t) == 2 & day(t) == 29))]]

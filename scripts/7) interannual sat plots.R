@@ -23,7 +23,7 @@ load('satellite data list (-36).Rdata')
 # save(ml, file = 'saellite data yearmon list (-36).Rdata')
 
 # Run before plot -------------------------------------------
-load('saellite data yearmon list (-36).Rdata')
+load('./extracted enviro data/saellite data yearmon list (-36).Rdata')
 
 # log chl values
 ml$chl <- ml$chl %>% mutate(mean = log(mean), sd = log(sd))
@@ -41,6 +41,7 @@ map <- map_data("worldHires")
 bathy <- getNOAA.bathy(136,141,-43, -36.5,res=1, keep=TRUE)
 bathy_map <- tbl_df(fortify(bathy))
 b2000 <- bathy_map %>% filter(z >= -2000)
+b2000 <- b2000 %>% group_by(x) %>% summarise(y = min(y))
 
 
 # plot sst, ssha, chl type data -------------------------------------------
@@ -70,19 +71,21 @@ basicymonplot <- function(x, vn, st = 12) {
       smax <- max(x[[i]]$mean, na.rm = TRUE)
       p <- ggplot(data = dl[[i]], aes(x, y)) +
         geom_raster(aes(fill = mean)) +
-        geom_contour(aes(z = sd), color = 'white', size = 0.1, alpha = 0.4) +
+        geom_contour(aes(z = mean), color = 'white', size = 0.1, alpha = 1) +
         facet_wrap(~ year) +
-        scale_fill_viridis(limits = c(smin, smax)) +
-        geom_map(map_id = "Australia", map = map, colour = "grey") +
+        scale_fill_viridis(limits = c(smin, smax), name = vn) +
+        geom_line(data = b2000, aes(x = x, y = y), color = 'grey', alpha = 0.7) +
+        geom_map(map_id = "Australia", map = map) +
+        geom_raster(data = stf, aes(x = x, y = y), fill = 'black', alpha = 0.2) +
         ylim(-43, -36) +
         xlim(136, 141) +
-        labs(title = sprintf('%s (%s)', vn[i], mo)) +
-        geom_contour(data = b2000, aes(x = x, y = y, z = z), color = 'black', alpha = 0.2, weight = 2) +
-        geom_tile(data = stf, aes(x = x, y = y), fill = 'black', alpha = 0.3, color = 'grey')
+        labs(title = sprintf('%s (%s)', vn[i], mo), y = 'Lat', x = 'Lon') + 
+        theme(text = element_text(size = 5)) + 
+        theme_bw()
       
       # assign(vn[i],p)
       
-      tiff(filename = sprintf('%s %s.%s', mo, vn[i], 'tiff'),  width=7, height=7, units= "in", res = 300)
+      png(filename = paste0('./plots/annual plots/', sprintf('%s %s.%s', mo, vn[i], 'png')),  width=8, height=8, units= "in", res = 300)
       print(p)
       dev.off()
       
@@ -93,7 +96,7 @@ basicymonplot <- function(x, vn, st = 12) {
   }
   return(out)
 }
-p <- basicymonplot(x = list(ml$chl), vn = 'chl')
+p <- basicymonplot(x = list(ml$ssha), vn = 'SSHA')
 
 # plot surface currents ---------------------------------------------------
 
@@ -223,7 +226,6 @@ CHLxSCymonplot <- function(x, vn, scaler = 3 , st = 12){
   
   # first, for every month
   for(k in 1:12){
-    print(k)
     mo <- month.abb[k]
     dl <- lapply(x[[1]], function(x){
       x <- x %>% filter(month == mo)
@@ -237,34 +239,37 @@ CHLxSCymonplot <- function(x, vn, scaler = 3 , st = 12){
     
     #### plot chl x surface current ####
     p <- ggplot(data = dl[[1]]) + 
-      geom_tile(data = dl[[1]], aes(x = x, y = y, fill = mean)) +
-      geom_contour(data = b2000, aes(x = x, y = y, z = z), color = 'grey', alpha = 0.7) +
+      geom_raster(data = dl[[1]], aes(x = x, y = y, fill = mean)) +
       geom_segment(data = dl[[2]], 
-                   arrow = arrow(length = unit(0.1, 'cm')), 
+                   arrow = arrow(length = unit(0.08, 'cm')), 
                    aes(x = x, y = y, xend = x + um * scaler, yend = y + vm * scaler), 
-                   lwd = 0.1, colour = 'black', size = 1) +
+                   lwd = 0.13, colour = 'grey70') +
       facet_wrap(~ year) +
-      scale_fill_viridis(limits = c(smin, smax)) +
-      geom_map(map_id = "Australia", map = map, colour = "grey") +
-      labs(title = sprintf('%s (%s)', vn, mo)) +
-      geom_tile(data = stf, aes(x = x, y = y), fill = 'black', alpha = 0.5, color = 'grey') +
+      scale_fill_viridis(limits = c(smin, smax), name = 'Chl') +
+      geom_line(data = b2000, aes(x = x, y = y), color = 'grey', alpha = 0.7) +
+      geom_map(map_id = "Australia", map = map) +
+      geom_raster(data = stf, aes(x = x, y = y), fill = 'black', alpha = 0.2) +
+      labs(title = sprintf('%s (%s)', vn, mo), x = 'Lon', y = 'Lat') +
       ylim(-43, -36) +
-      xlim(136, 141)
+      xlim(136, 141) + 
+      theme(text = element_text(size = 5)) + 
+      theme_bw()
       
-      tiff(filename = sprintf('%s %s.%s', mo, vn, 'tiff'),  width=7, height=7, units= "in", res = 300)
+      png(filename = paste0('./plots/annual plots/',sprintf('%s %s.%s', mo, vn, 'png')),  width=8, height=8, units= "in", res = 300)
       print(p)
       dev.off()
       p <- list(p)
       names(p) <- sprintf('%s (%s)', vn, mo)
       out <- c(out, p)
+      print(k)
   }
   return(out)
 }
 p4 <- CHLxSCymonplot(x = list(list(ml$chl, ml$scu)), 
-                     vn = 'chl x surface current')
+                     vn = 'chl and surface current')
 
 
-#### combine wind stress curl and surface current plots ####
+# combine wind stress curl and surface current plots ----------------
 scaler = 6
 p <- ggplot(data = ml$curl) + 
   geom_tile(data = ml$curl, aes(x = x, y = y, fill = mean < 0)) +
@@ -278,11 +283,11 @@ p <- ggplot(data = ml$curl) +
   geom_map(map_id = "Australia", map = map, colour = "grey") + 
   labs(title = 'wind stress curl and surface current') 
 
-tiff(filename = paste('wind stress curl and surface current', '.tiff', sep = ''),  width=7, height=7, units= "in", res = 300)
+png(filename = paste('./plots/wind stress curl and surface current', '.png', sep = ''),  width=7, height=7, units= "in", res = 300)
 p
 dev.off()
 
-#### combine chl and wind stress curl ####
+# combine chl and wind stress curl ------------
 p <- ggplot(data = ml$chl) + 
   geom_point(data = ml$curl, aes(x = x, y = y, alpha = mean < 0)) +
   geom_tile(data = ml$chl, aes(x = x, y = y, fill = mean), alpha = 0.9) +
@@ -292,3 +297,47 @@ p <- ggplot(data = ml$chl) +
   geom_map(map_id = "Australia", map = map, colour = "grey") + 
   labs(title = 'wind stress curl and surface current') + 
   scale_fill_viridis()
+
+
+# plot 1998/1999 chl and ssha during strong el nino ----------------------------
+ssha <- ml$ssha %>% filter(year == 1998)
+chl <- ml$chl %>% filter(year == 1998)
+pal <- wesanderson::wes_palette('Zissou1')
+p1 <- ggplot(data = chl, aes(x, y)) + 
+  geom_raster(aes(fill = mean)) +
+  scale_fill_viridis(name = 'Chl-a') +
+  geom_line(data = b2000, aes(x = x, y = y), color = 'black', alpha = 0.7) +
+  # geom_contour(data = ssha, aes(z = mean), size = 0.3, colour = 'white') + 
+  stat_contour(data = ssha, aes(z = mean, colour = ..level..), size = 0.3) + 
+  geom_map(map_id = "Australia", map = map) +
+  labs( x = 'Lon', y = 'Lat') +
+  facet_wrap(~ month) +
+  ylim(-43, -36) +
+  xlim(136, 141) + 
+  theme(text = element_text(size = 5)) + 
+  theme_bw() + 
+  scale_colour_gradient2(high = pal[5], low = pal[1], name = 'SSHA')
+
+png(filename = paste('./plots/annual plots/1998 chl vs ssha.png', '.png', sep = ''),  width=8, height=8, units= "in", res = 300)
+p1
+dev.off()
+
+
+curr <- ml$scu %>% filter(year == 1998)
+scaler = 3
+ggplot(data = chl, aes(x, y)) + 
+  geom_raster(aes(fill = mean)) +
+  scale_fill_viridis(name = 'Chl-a') +
+  geom_line(data = b2000, aes(x = x, y = y), color = 'black', alpha = 0.7) +
+  geom_segment(data = curr, 
+               arrow = arrow(length = unit(0.08, 'cm')), 
+               aes(x = x, y = y, xend = x + um * scaler, yend = y + vm * scaler), 
+               lwd = 0.13, colour = 'grey70') +
+  geom_map(map_id = "Australia", map = map) +
+  labs( x = 'Lon', y = 'Lat') +
+  facet_wrap(~ month) +
+  ylim(-43, -36) +
+  xlim(136, 141) + 
+  theme(text = element_text(size = 5)) + 
+  theme_bw() + 
+  scale_colour_gradient2(high = pal[5], low = pal[1], name = 'SSHA')
